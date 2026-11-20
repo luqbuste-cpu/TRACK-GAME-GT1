@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Track Day</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    body {
+      background-color: #0b0b0b;
+      color: #ffffff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 16px;
+    }
+
+    /* Top Header */
+    .header {
+      width: 300px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+
+    .title-group {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+    }
+
+    .title-group h1 {
+      font-size: 18px;
+      font-weight: 700;
+      color: #e0e0e0;
+    }
+
+    .score {
+      font-size: 13px;
+      color: #b0b0b0;
+    }
+
+    #pauseBtn {
+      background-color: #6b3408;
+      color: #e69d5c;
+      border: none;
+      border-radius: 4px;
+      padding: 6px 18px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      cursor: pointer;
+    }
+
+    /* Game Canvas */
+    canvas {
+      background-color: #050505;
+      border: 1px solid #333333;
+      display: block;
+    }
+
+    /* Bottom Controls */
+    .controls {
+      width: 300px;
+      display: grid;
+      grid-template-columns: 1fr 1.4fr 1fr;
+      gap: 10px;
+      margin-top: 14px;
+      align-items: center;
+    }
+
+    .col {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    button.ctrl {
+      border: none;
+      border-radius: 4px;
+      padding: 12px 0;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      text-align: center;
+    }
+
+    button.ctrl:active {
+      opacity: 0.8;
+    }
+
+    .btn-blue {
+      background-color: #0b4a8f;
+      color: #8cc2ff;
+    }
+
+    .btn-gray {
+      background-color: #2b2b2b;
+      color: #9e9e9e;
+    }
+
+    .btn-red {
+      background-color: #9c0c0c;
+      color: #ff9999;
+      padding: 14px 8px;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="title-group">
+      <h1>Track Day</h1>
+      <span class="score">Score: <span id="scoreVal">0</span></span>
+    </div>
+    <button id="pauseBtn">PAUSE</button>
+  </div>
+
+  <canvas id="gameCanvas" width="300" height="400"></canvas>
+
+  <div class="controls">
+    <div class="col">
+      <button class="ctrl btn-blue" id="leftBtn">&lt; L</button>
+      <button class="ctrl btn-gray" id="hornBtn">HORN</button>
+    </div>
+
+    <button class="ctrl btn-red" id="startBtn">START ENGINE</button>
+
+    <div class="col">
+      <button class="ctrl btn-blue" id="rightBtn">R &gt;</button>
+      <button class="ctrl btn-gray" id="gasBtn">GAS</button>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    // Game State
+    let running = false;
+    let paused = false;
+    let score = 0;
+    let baseSpeed = 4;
+    let gasBoost = 0;
+    let lineOffset = 0;
+
+    // Lane Center Coordinates (3 Lanes)
+    const lanes = [50, 150, 250];
+    let currentLane = 1; // 0 = Left, 1 = Center, 2 = Right
+
+    // Player Car Dimensions & Coordinates
+    const car = {
+      width: 44,
+      height: 80,
+      x: lanes[1] - 22,
+      y: 280
+    };
+
+    // Traffic Obstacles
+    let obstacles = [];
+    let frameCount = 0;
+
+    // Draw Road & Dashed Dividers
+    function drawRoad() {
+      ctx.fillStyle = "#050505";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.strokeStyle = "#666666";
+      ctx.lineWidth = 4;
+      ctx.setLineDash([18, 18]);
+      ctx.lineDashOffset = -lineOffset;
+
+      // Divider 1 (x = 100) and Divider 2 (x = 200)
+      [100, 200].forEach(x => {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      });
+
+      ctx.setLineDash([]);
+    }
+
+    // Draw Player Car (Matches Green Sprite in Screenshot)
+    function drawCar(x, y, bodyColor = "#008000", roofColor = "#e6e6e6") {
+      // Tires
+      ctx.fillStyle = "#1f1f1f";
+      ctx.fillRect(x - 4, y + 10, 4, 16);             // Front Left
+      ctx.fillRect(x + car.width, y + 10, 4, 16);     // Front Right
+      ctx.fillRect(x - 4, y + 54, 4, 16);             // Rear Left
+      ctx.fillRect(x + car.width, y + 54, 4, 16);     // Rear Right
+
+      // Main Body
+      ctx.fillStyle = bodyColor;
+      ctx.fillRect(x, y, car.width, car.height);
+
+      // Headlights
+      ctx.fillStyle = "#e6e600";
+      ctx.beginPath();
+      ctx.arc(x + 9, y + 8, 4, 0, Math.PI * 2);
+      ctx.arc(x + car.width - 9, y + 8, 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Windshield & Rear Window
+      ctx.fillStyle = "#262626";
+      ctx.fillRect(x + 6, y + 20, car.width - 12, 8);
+      ctx.fillRect(x + 6, y + 60, car.width - 12, 6);
+
+      // Roof
+      ctx.fillStyle = roofColor;
+      ctx.fillRect(x + 6, y + 28, car.width - 12, 32);
+    }
+
+    // Spawn & Update Enemy Cars
+    function updateObstacles() {
+      if (frameCount % 75 === 0) {
+        const lane = Math.floor(Math.random() * 3);
+        obstacles.push({
+          x: lanes[lane] - car.width / 2,
+          y: -car.height,
+          color: "#b30000"
+        });
+      }
+
+      for (let i = obstacles.length - 1; i >= 0; i--) {
+        let obs = obstacles[i];
+        obs.y += (baseSpeed + gasBoost) * 0.85;
+        drawCar(obs.x, obs.y, obs.color, "#cccccc");
+
+        // Collision Detection
+        if (
+          car.x < obs.x + car.width &&
+          car.x + car.width > obs.x &&
+          car.y < obs.y + car.height &&
+          car.y + car.height > obs.y
+        ) {
+          running = false;
+          alert("Crash! Final Score: " + score);
+          resetGame();
+          return;
+        }
+
+        // Passed Car -> Add Score
+        if (obs.y > canvas.height) {
+          obstacles.splice(i, 1);
+          score++;
+          document.getElementById("scoreVal").innerText = score;
+        }
+      }
+    }
+
+    function resetGame() {
+      score = 0;
+      obstacles = [];
+      currentLane = 1;
+      car.x = lanes[1] - car.width / 2;
+      document.getElementById("scoreVal").innerText = score;
+      drawRoad();
+      drawCar(car.x, car.y);
+    }
+
+    function gameLoop() {
+      if (!running || paused) return;
+
+      frameCount++;
+      lineOffset = (lineOffset + baseSpeed + gasBoost) % 36;
+
+      // Smooth Lane Transition
+      const targetX = lanes[currentLane] - car.width / 2;
+      car.x += (targetX - car.x) * 0.25;
+
+      drawRoad();
+      updateObstacles();
+      drawCar(car.x, car.y);
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Controls
+    document.getElementById("startBtn").addEventListener("click", () => {
+      if (!running) {
+        resetGame();
+        running = true;
+        paused = false;
+        gameLoop();
+      }
+    });
+
+    document.getElementById("pauseBtn").addEventListener("click", () => {
+      if (!running) return;
+      paused = !paused;
+      document.getElementById("pauseBtn").innerText = paused ? "RESUME" : "PAUSE";
+      if (!paused) gameLoop();
+    });
+
+    document.getElementById("leftBtn").addEventListener("click", () => {
+      if (running && !paused && currentLane > 0) currentLane--;
+    });
+
+    document.getElementById("rightBtn").addEventListener("click", () => {
+      if (running && !paused && currentLane < 2) currentLane++;
+    });
+
+    // Gas Hold Events
+    const gasBtn = document.getElementById("gasBtn");
+    gasBtn.addEventListener("pointerdown", () => { gasBoost = 5; });
+    gasBtn.addEventListener("pointerup", () => { gasBoost = 0; });
+    gasBtn.addEventListener("pointerleave", () => { gasBoost = 0; });
+
+    // Web Audio API Horn Sound
+    document.getElementById("hornBtn").addEventListener("click", () => {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(220, audioCtx.currentTime);
+      osc.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.18);
+    });
+
+    // Initial Render
+    drawRoad();
+    drawCar(car.x, car.y);
+  </script>
+</body>
+</html>
